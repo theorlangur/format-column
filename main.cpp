@@ -38,23 +38,23 @@ int main(int argc, const char *argv[])
     columns_t cols;
 
     group_desc g_descs[] = { 
-        {'(', ')', false, 0, 0},//0
-        {'[', ']', false, 0, 0},//1
-        {'{', '}', false, 0, 0},//2
-        {'<', '>', false, 0, 0},//3
-        {'"', '"', true, 0, 0},//4
-        {'\'', '\'', true, 0, 0},//5
+        {'(' , ')' , false, 0, 0}, //0
+        {'[' , ']' , false, 0, 0}, //1
+        {'{' , '}' , false, 0, 0}, //2
+        {'<' , '>' , false, 0, 0}, //3
+        {'"' , '"' , true , 0, 0}, //4
+        {'\'', '\'', true , 0, 0}, //5
     };
 
     int groups[256];
     std::fill(groups, groups + 256, -1);
     
-    groups['('] = groups[')'] = 0;
-    groups['['] = groups[']'] = 1;
-    groups['{'] = groups['}'] = 2;
-    groups['<'] = groups['>'] = 3;
-    groups['"'] = 4;
-    groups['\''] = 5;
+    groups['(']  = groups[')'] = 0;
+    groups['[']  = groups[']'] = 1;
+    groups['{']  = groups['}'] = 2;
+    groups['<']  = groups['>'] = 3;
+    groups['"']  = 4;         
+    groups['\''] = 5;         
 
     std::fstream in_file;
     std::fstream out_file;
@@ -64,6 +64,7 @@ int main(int argc, const char *argv[])
     char opt_out_sep = 0;
     bool space_after_sep = true;
     bool first_spaces = true;
+    bool check_groups = true;
 
     for(int i = 0; i < argc; ++i)
     {
@@ -83,6 +84,11 @@ int main(int argc, const char *argv[])
         }
         else if (std::strcmp(argv[i], "-nosmart") == 0)
         {
+            smart = false;
+        }
+        else if (std::strcmp(argv[i], "-nogroups") == 0)
+        {
+            check_groups = false;
             smart = false;
         }
         else if (std::strcmp(argv[i], "-nosepspace") == 0)
@@ -125,6 +131,7 @@ int main(int argc, const char *argv[])
     char smart_c = 0;
 
     auto groups_ok = [&](char c){
+        if (!check_groups) return true;
         for(const auto &d : g_descs) 
         {
             if (d.b == c || d.e == c)
@@ -138,7 +145,8 @@ int main(int argc, const char *argv[])
     auto reset_groups = [&]{ for(auto &d : g_descs) d.current = 0; };
 
     auto process_group = [&](char c, char prev) {
-        uint8_t u = (uint8_t)c;
+      if (!check_groups) return;
+      uint8_t u = (uint8_t)c;
       if (groups[u] != -1) 
       {
         // valid descriptor

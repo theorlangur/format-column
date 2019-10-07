@@ -19,6 +19,7 @@ struct line
     std::string l;
     std::vector<strSpan> columns;
     bool rn;
+	bool ignore;
 };
 
 struct group_desc
@@ -65,6 +66,7 @@ int main(int argc, const char *argv[])
     bool space_after_sep = true;
     bool first_spaces = true;
     bool check_groups = true;
+	std::string ignore_line_start_pattern("");
 
     for(int i = 0; i < argc; ++i)
     {
@@ -81,6 +83,10 @@ int main(int argc, const char *argv[])
         else if (std::strcmp(argv[i], "-osep") == 0)
         {
             opt_out_sep = argv[++i][0];
+        }
+        else if (std::strcmp(argv[i], "-ignore") == 0)
+        {
+            ignore_line_start_pattern = argv[++i];
         }
         else if (std::strcmp(argv[i], "-nosmart") == 0)
         {
@@ -197,6 +203,7 @@ int main(int argc, const char *argv[])
         line.columns.reserve(cols.size());
         line.columns.push_back({0, 0});
         line.rn = false;
+		line.ignore = false;
 
         reset_groups();
     };
@@ -235,25 +242,30 @@ int main(int argc, const char *argv[])
     const uint8_t *pCurBom = bom_utf8;
     bool withBom = false;
 
+	auto check_bom = [&](char c)
+	{
+		if (pCurBom)
+		{
+			if (*pCurBom++ == (uint8_t)c)
+				return true;//just ommiting
+
+			withBom = pCurBom == (bom_utf8 + 3);
+			pCurBom = nullptr;
+		}
+		return false;
+	};
+
     bool count_spaces_at_begin = true;
     int spaces_at_begin = 0;
     int max_space_count = 0;
 
-    while(!is.eof())
-    {
-        char c;
-        is.get(c);
-        if (pCurBom)
-        {
-            if (*pCurBom++ == (uint8_t)c)
-                continue;//just ommiting
+	auto reset_spaces = [&] {
+		count_spaces_at_begin = true;
+		spaces_at_begin = 0;
+	};
 
-			withBom = pCurBom == (bom_utf8 + 3);
-            pCurBom = nullptr;
-        }
-        auto &line = lines.back();
-        line.l += c;
-        if (first_spaces && count_spaces_at_begin)
+	auto count_spaces = [&](char c) {
+        if (count_spaces_at_begin)
         {
             if (std::isspace(c))
             {
@@ -261,14 +273,57 @@ int main(int argc, const char *argv[])
             }else
             {
                 count_spaces_at_begin = false;
-                if (spaces_at_begin > max_space_count)
+                if (first_spaces && (spaces_at_begin > max_space_count))
                     max_space_count = spaces_at_begin;
-
-                spaces_at_begin = 0;
             }
         }
-        process_group(c, prev);
-        update_last_column();
+	};
+
+	bool check_ignore_line_pattern = !ignore_line_start_pattern.empty();
+	const char* pIgnorePatternCur = &*ignore_line_start_pattern.begin();
+
+	auto reset_ignore_state = [&] {
+		check_ignore_line_pattern = !ignore_line_start_pattern.empty();
+		pIgnorePatternCur = &*ignore_line_start_pattern.begin();
+	};
+
+	auto check_ignore = [&](char c)
+	{
+		if (check_ignore_line_pattern && !std::isspace(c))
+		{
+			auto& line = lines.back();
+			if (c != *pIgnorePatternCur)
+			{
+				check_ignore_line_pattern = false;//don't check until the new line
+			}
+			else
+			{
+				++pIgnorePatternCur;
+				if (*pIgnorePatternCur == 0)//end of a pattern?
+				{
+					line.ignore = true;
+					check_ignore_line_pattern = false;
+				}
+			}
+		}
+	};
+
+
+    while(!is.eof())
+    {
+        char c;
+        is.get(c);
+		if (check_bom(c)) continue;
+        auto &line = lines.back();
+        line.l += c;
+		count_spaces(c);
+		check_ignore(c);
+
+		if (!line.ignore)
+		{
+			process_group(c, prev);
+			update_last_column();
+		}
 
         if (c == '\n')
         {
@@ -276,17 +331,18 @@ int main(int argc, const char *argv[])
             if (prev == '\r')
                 line.rn = true;
 
-            update_max_column();
+			if (!line.ignore)
+				update_max_column();
+
             new_line();
-            count_spaces_at_begin = true;
-        }else
-        {
-            if (is_new_column(c))
-            {
-                update_max_column();
-                new_column();
-            }
+			reset_spaces();
+			reset_ignore_state();
         }
+		else if (!line.ignore && is_new_column(c))
+		{
+			update_max_column();
+			new_column();
+		}
 
         prev = c;
     }
@@ -309,6 +365,12 @@ int main(int argc, const char *argv[])
     //output now all
     for(auto &l : lines)
     {
+		if (l.ignore)
+		{
+			os << l.l;//output as-is
+			continue;
+		}
+
         bool is_last = &l == &lines.back();
         if (!is_last && first_spaces)
             os.write(&*spaces.begin(), max_space_count);

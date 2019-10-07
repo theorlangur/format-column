@@ -248,7 +248,7 @@ int main(int argc, const char *argv[])
             if (*pCurBom++ == (uint8_t)c)
                 continue;//just ommiting
 
-            withBom = *(pCurBom - 1);
+			withBom = pCurBom == (bom_utf8 + 3);
             pCurBom = nullptr;
         }
         auto &line = lines.back();

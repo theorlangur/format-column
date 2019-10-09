@@ -14,10 +14,16 @@ struct strSpan
     size_t size() const { return e - b; }
 };
 
+struct column_desc
+{
+	strSpan s;
+	char sep;
+};
+
 struct line
 {
     std::string l;
-    std::vector<strSpan> columns;
+    std::vector<column_desc> columns;
     bool rn;
 	bool ignore;
 };
@@ -47,6 +53,11 @@ int main(int argc, const char *argv[])
         {'\'', '\'', true , 0, 0}, //5
     };
 
+	char separators[256] = { 0 };
+
+	auto is_sep = [&](char c) { return separators[uint8_t(c)] != 0; };
+	auto get_out_sep = [&](char c) { return separators[uint8_t(c)]; };
+
     int groups[256];
     std::fill(groups, groups + 256, -1);
     
@@ -61,8 +72,7 @@ int main(int argc, const char *argv[])
     std::fstream out_file;
 
     bool smart = true;
-    char opt_sep = 0;
-    char opt_out_sep = 0;
+	std::string opt_sep, opt_out_sep;
     bool space_after_sep = true;
     bool first_spaces = true;
     bool check_groups = true;
@@ -78,11 +88,11 @@ int main(int argc, const char *argv[])
             out_file.open(argv[++i], std::ios::out);
         }else if (std::strcmp(argv[i], "-sep") == 0)
         {
-            opt_sep = argv[++i][0];
+            opt_sep = argv[++i];
         }
         else if (std::strcmp(argv[i], "-osep") == 0)
         {
-            opt_out_sep = argv[++i][0];
+            opt_out_sep = argv[++i];
         }
         else if (std::strcmp(argv[i], "-ignore") == 0)
         {
@@ -126,8 +136,16 @@ int main(int argc, const char *argv[])
         }
     }
 
-    char sep = opt_sep ? opt_sep : ',';
-    char out_sep = opt_out_sep ? opt_out_sep : sep;
+    std::string sep = !opt_sep.empty() ? opt_sep : std::string(",");
+
+	auto out_it = opt_out_sep.begin();
+	for (char c : sep)
+	{
+		if (out_it != opt_out_sep.end())
+			separators[c] = *out_it++;
+		else
+			separators[c] = c;
+	}
 
     std::istream &is = in_file.is_open() ? in_file : std::cin;
     std::ostream &os = out_file.is_open() ? out_file : std::cout;
@@ -194,7 +212,7 @@ int main(int argc, const char *argv[])
         smart = false;
     };
 
-    auto is_new_column =[&](char c) { return  (c == sep) && groups_ok(c); };
+    auto is_new_column =[&](char c) { return  is_sep(c) && groups_ok(c); };
 
     auto new_line = [&]{
         lines.push_back({});
@@ -213,25 +231,26 @@ int main(int argc, const char *argv[])
         auto &c = line.columns.back();
         char lc = line.l.back();
         if (!is_new_column(lc) && !std::isspace(lc))
-            c.e = line.l.size();
+            c.s.e = line.l.size();
 
-        if (c.b < line.l.size() && std::isspace(line.l.at(c.b)))//ommiting spaces
+        if (c.s.b < line.l.size() && std::isspace(line.l.at(c.s.b)))//ommiting spaces
         {
-            c.b = line.l.size() - 1;
-            if (std::isspace(lc)) c.e = c.b;
+            c.s.b = line.l.size() - 1;
+            if (std::isspace(lc)) c.s.e = c.s.b;
         }
     };
 
     auto update_max_column = [&]{
         auto &line = lines.back();
         auto &c = line.columns.back();
-        if (c.size() > cols[line.columns.size() - 1])
-            cols[line.columns.size() - 1] = c.size();
+        if (c.s.size() > cols[line.columns.size() - 1])
+            cols[line.columns.size() - 1] = c.s.size();
     };
 
-    auto new_column = [&]{
+    auto new_column = [&](char c){
         auto &line = lines.back();
         line.columns.push_back({line.l.size(), line.l.size()});
+		line.columns.back().sep = c;
         while (cols.size() < line.columns.size())
             cols.push_back(0);
     };
@@ -341,7 +360,7 @@ int main(int argc, const char *argv[])
 		else if (!line.ignore && is_new_column(c))
 		{
 			update_max_column();
-			new_column();
+			new_column(c);
 		}
 
         prev = c;
@@ -379,13 +398,14 @@ int main(int argc, const char *argv[])
         for(size_t i = 0; i < n; ++i)
         {
             size_t m = cols[i];
+			auto const& col = l.columns[i];
             if (i)
             {
-                os.put(out_sep);
+                os.put(get_out_sep(col.sep));
                 if (space_after_sep) os.put(' ');
             }
-            if (l.columns[i].size())
-                out_part(os, l.l, l.columns[i], m);
+            if (col.s.size())
+                out_part(os, l.l, col.s, m);
         }
         if (!is_last)
         {
